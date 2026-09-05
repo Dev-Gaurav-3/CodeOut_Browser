@@ -1,0 +1,35 @@
+{
+    "manifest_version": 3,
+    "name": "CodeOut",
+    "version": "0.1.0",
+    "description": "Code outside the platform.",
+    "permissions": [
+        "activeTab"
+    ],
+    "icons": {
+        "48": "icons/Logo2.png"
+    },
+    "action": {
+        "default_title": "Open with CodeOut"
+    },
+    "background": {
+    "scripts": ["background.js"],
+    "service_worker": "background.js" 
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://leetcode.com/*"
+            ],
+            "js": [
+                "content.js"
+            ]
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": ["page.js"],
+            "matches": ["https://leetcode.com/*"]
+        }
+    ]
+}
