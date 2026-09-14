@@ -6,6 +6,58 @@ script.onload = () => {
     script.remove();
 };
 
+const socket = new WebSocket("ws://localhost:3000");
+
+socket.addEventListener("open", () => {
+    console.log("Connected to CodeOut WebSocket!");
+
+    socket.send(JSON.stringify({
+        type: "register",
+        client: "browser"
+    }));
+});
+
+socket.addEventListener("message", async (event) => {
+    const data = JSON.parse(event.data);
+
+    if (data.command === "syncCode") {
+
+        console.log("Code received from VS Code");
+
+        window.postMessage({
+            source: "CodeOut",
+            type: "SET_CODE",
+            code: data.code,
+            language: data.language
+        }, "*");
+    }
+    if (data.command === "runCode") {
+
+        console.log("🔥 runCode received in content.js");
+
+        window.postMessage({
+            source: "CodeOut",
+            type: "RUN_CODE"
+        }, "*");
+
+        console.log("➡️ RUN_CODE sent to page.js");
+    }
+    if (data.command === "submit") {
+        window.postMessage({
+            source: "CodeOut",
+            type: "SUBMIT_CODE"
+        }, "*");
+    }
+    if (
+        event.data?.source === "CodeOut" &&
+        event.data?.type === "LEETCODE_TEST_RESULTS"
+    ) {
+        socket.send(JSON.stringify({
+            command: "testResults",
+            results: event.data.results
+        }));
+    }
+});
 
 browser.runtime.onMessage.addListener(async (message) => {
     if (message.type === "CODEOUT_START") {
@@ -26,22 +78,23 @@ browser.runtime.onMessage.addListener(async (message) => {
         let question = data.data.question;
         // console.log("FULL QUESTION DATA:", question);
         const examples = getExamples(question.content);
-        console.log("Extracted examples:", examples);
+        // console.log("Extracted examples:", examples);
         const finalTC = examples.map((example) => {
             return {
                 input: example.input,
                 expectedOutput: example.expectedOutput
             };
         });
-        console.log(finalTC);
+        // console.log(finalTC);
         const problem = {
             slug: question.titleSlug,
+            questionFrontendId : question.questionFrontendId,
             title: question.title,
             difficulty: question.difficulty,
             testcases: finalTC,
             codeSnippets: question.codeSnippets
         };
-
+        
         console.log("Sending problem to CodeOut server:", problem);
 
         try {
@@ -62,11 +115,12 @@ browser.runtime.onMessage.addListener(async (message) => {
             console.error("Failed to contact CodeOut server:", error);
         }
         
-        console.log("Question ID:", question.questionFrontendId);
-        console.log("Title:", question.title);
-        console.log("Difficulty:", question.difficulty);
-        console.log("Testcases:", question.exampleTestcases);
-        console.log("Code snippets:", question.codeSnippets);
+        // console.log("Question ID:", question.questionFrontendId);
+        // console.log("Title:", question.title);
+        // console.log("Difficulty:", question.difficulty);
+        // console.log("Testcases:", question.exampleTestcases);
+        // console.log("Code snippets:", question.codeSnippets);
+
     }
 });
 
@@ -81,6 +135,15 @@ window.addEventListener("message", (event) => {
             "Received from page.js:",
             event.data.data
         );
+    }
+    if (
+        event.data?.source === "CodeOut" &&
+        event.data?.type === "LEETCODE_TEST_RESULTS"
+    ){
+        socket.send(JSON.stringify({
+        command: "testResults",
+        results: event.data.results
+        }));
     }
 });
 
