@@ -6,58 +6,71 @@ script.onload = () => {
     script.remove();
 };
 
-const socket = new WebSocket("ws://localhost:3000");
+let socket;
 
-socket.addEventListener("open", () => {
-    console.log("Connected to CodeOut WebSocket!");
+function connectToServer() {
 
-    socket.send(JSON.stringify({
-        type: "register",
-        client: "browser"
-    }));
-});
+    socket = new WebSocket("ws://localhost:48721");
 
-socket.addEventListener("message", async (event) => {
-    const data = JSON.parse(event.data);
+    socket.addEventListener("open", () => {
+        console.log("Connected to CodeOut WebSocket!");
 
-    if (data.command === "syncCode") {
-
-        console.log("Code received from VS Code");
-
-        window.postMessage({
-            source: "CodeOut",
-            type: "SET_CODE",
-            code: data.code,
-            language: data.language
-        }, "*");
-    }
-    if (data.command === "runCode") {
-
-        console.log("🔥 runCode received in content.js");
-
-        window.postMessage({
-            source: "CodeOut",
-            type: "RUN_CODE"
-        }, "*");
-
-        console.log("➡️ RUN_CODE sent to page.js");
-    }
-    if (data.command === "submit") {
-        window.postMessage({
-            source: "CodeOut",
-            type: "SUBMIT_CODE"
-        }, "*");
-    }
-    if (
-        event.data?.source === "CodeOut" &&
-        event.data?.type === "LEETCODE_TEST_RESULTS"
-    ) {
         socket.send(JSON.stringify({
-            command: "testResults",
-            results: event.data.results
+            type: "register",
+            client: "browser"
         }));
-    }
-});
+    });
+
+    socket.addEventListener("message", async (event) => {
+
+        const data = JSON.parse(event.data);
+
+        if (data.command === "syncCode") {
+
+            console.log("Code received from VS Code");
+
+            window.postMessage({
+                source: "CodeOut",
+                type: "SET_CODE",
+                code: data.code,
+                language: data.language
+            }, "*");
+        }
+
+        if (data.command === "runCode") {
+
+            console.log("🔥 runCode received in content.js");
+
+            window.postMessage({
+                source: "CodeOut",
+                type: "RUN_CODE"
+            }, "*");
+        }
+
+        if (data.command === "submit") {
+
+            window.postMessage({
+                source: "CodeOut",
+                type: "SUBMIT_CODE"
+            }, "*");
+        }
+    });
+
+    socket.addEventListener("error", (error) => {
+        console.error("CodeOut WebSocket error:", error);
+    });
+
+    socket.addEventListener("close", () => {
+
+        console.log("Disconnected from CodeOut server. Retrying...");
+
+        setTimeout(() => {
+            connectToServer();
+        }, 2000);
+    });
+}
+
+connectToServer();
 
 browser.runtime.onMessage.addListener(async (message) => {
     if (message.type === "CODEOUT_START") {
@@ -98,7 +111,7 @@ browser.runtime.onMessage.addListener(async (message) => {
         console.log("Sending problem to CodeOut server:", problem);
 
         try {
-            const response = await fetch("http://localhost:3000/problem", {
+            const response = await fetch("http://localhost:48721/problem", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"

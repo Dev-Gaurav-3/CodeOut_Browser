@@ -3,19 +3,33 @@
     "name": "CodeOut",
     "version": "0.1.0",
     "description": "Code outside the platform.",
+
     "permissions": [
         "activeTab"
     ],
+
     "icons": {
         "48": "icons/Logo2.png"
     },
+
     "action": {
         "default_title": "Open with CodeOut"
     },
+
     "background": {
-    "scripts": ["background.js"],
-    "service_worker": "background.js" 
+        "scripts": ["background.js"],
+        "service_worker": "background.js"
     },
+
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "codeout@gaurav.dev",
+            "data_collection_permissions": {
+                "required": ["none"]
+            }
+        }
+    },
+
     "content_scripts": [
         {
             "matches": [
@@ -26,6 +40,7 @@
             ]
         }
     ],
+
     "web_accessible_resources": [
         {
             "resources": ["page.js"],
