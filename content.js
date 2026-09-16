@@ -1,6 +1,7 @@
 const script = document.createElement("script");
 
 script.src = browser.runtime.getURL("page.js");
+
 (document.head || document.documentElement).appendChild(script);
 
 script.onload = () => {
@@ -34,7 +35,9 @@ function connectToServer() {
                 },
                 "*"
             );
-        } else if (data.command === "runCode") {
+        }
+
+        if (data.command === "runCode") {
             window.postMessage(
                 {
                     source: "CodeOut",
@@ -42,7 +45,9 @@ function connectToServer() {
                 },
                 "*"
             );
-        } else if (data.command === "submit") {
+        }
+
+        if (data.command === "submit") {
             window.postMessage(
                 {
                     source: "CodeOut",
@@ -70,24 +75,56 @@ browser.runtime.onMessage.addListener(async (message) => {
     }
 
     const url = new URL(window.location.href);
-    const questionName = url.pathname.split("/")[2];
+
+    const match = url.pathname.match(
+        /\/(?:problems|problem)\/([^/]+)/
+    );
+
+    if (!match) {
+        console.error("CodeOut: Could not find problem slug");
+        return;
+    }
+
+    const questionName = match[1];
+
+    const isContestProblem =
+        url.pathname.includes("/contest/");
 
     const data = await getProblem(questionName);
+
+    if (!data?.data?.question) {
+        console.error("CodeOut: Problem data not found");
+        return;
+    }
+
     const question = data.data.question;
 
     const examples = getExamples(question.content);
+
+    const finalTC = examples.map((example) => ({
+        input: example.input,
+        expectedOutput: example.expectedOutput
+    }));
 
     const problem = {
         slug: question.titleSlug,
         questionFrontendId: question.questionFrontendId,
         title: question.title,
         difficulty: question.difficulty,
-        testcases: examples.map((example) => ({
-            input: example.input,
-            expectedOutput: example.expectedOutput
-        })),
+        testcases: finalTC,
         codeSnippets: question.codeSnippets
     };
+
+    // Tell page.js whether this is a contest problem
+    window.postMessage(
+        {
+            source: "CodeOut",
+            type: "SET_TESTCASES",
+            testcases: finalTC,
+            isContestProblem
+        },
+        "*"
+    );
 
     try {
         const response = await fetch(
@@ -101,7 +138,10 @@ browser.runtime.onMessage.addListener(async (message) => {
             }
         );
 
-        console.log("CodeOut problem sent:", response.status);
+        console.log(
+            "CodeOut problem sent:",
+            response.status
+        );
     } catch (error) {
         console.error(
             "Failed to contact CodeOut server:",
@@ -111,12 +151,18 @@ browser.runtime.onMessage.addListener(async (message) => {
 });
 
 window.addEventListener("message", (event) => {
-    if (event.source !== window || event.data?.source !== "CodeOut") {
+    if (
+        event.source !== window ||
+        event.data?.source !== "CodeOut"
+    ) {
         return;
     }
 
     if (event.data.type === "LEETCODE_TEST_RESULTS") {
-        if (!socket || socket.readyState !== WebSocket.OPEN) {
+        if (
+            !socket ||
+            socket.readyState !== WebSocket.OPEN
+        ) {
             return;
         }
 
@@ -168,9 +214,14 @@ async function getProblem(titleSlug) {
 
 function getExamples(content) {
     const parser = new DOMParser();
-    const doc = parser.parseFromString(content, "text/html");
+    const doc = parser.parseFromString(
+        content,
+        "text/html"
+    );
+
     const examples = [];
 
+    // Normal LeetCode <pre> examples
     const preTags = doc.querySelectorAll("pre");
 
     for (const pre of preTags) {
@@ -190,6 +241,38 @@ function getExamples(content) {
                 expectedOutput: outputMatch[1].trim()
             });
         }
+    }
+
+    if (examples.length > 0) {
+        return examples;
+    }
+
+    // Contest-style examples
+    const text = doc.body.innerText
+        .replace(/\u00a0/g, " ")
+        .replace(/\r/g, "");
+
+    const exampleBlocks = text.split(
+        /Example\s+\d+\s*:/i
+    );
+
+    for (const block of exampleBlocks.slice(1)) {
+        const inputMatch = block.match(
+            /Input:\s*([\s\S]*?)(?=\n\s*Output:)/
+        );
+
+        const outputMatch = block.match(
+            /Output:\s*([\s\S]*?)(?=\n\s*Explanation:|$)/
+        );
+
+        if (!inputMatch || !outputMatch) {
+            continue;
+        }
+
+        examples.push({
+            input: inputMatch[1].trim(),
+            expectedOutput: outputMatch[1].trim()
+        });
     }
 
     return examples;

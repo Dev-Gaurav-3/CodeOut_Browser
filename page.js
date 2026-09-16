@@ -1,6 +1,22 @@
+let codeOutTestcases = [];
+let codeOutIsContestProblem = false;
+
 function getTestCaseResults() {
-    const cases = Array.from(document.querySelectorAll("div"))
-        .filter((el) => /^Case \d+$/.test(el.textContent.trim()));
+    // Contest problems
+    if (codeOutIsContestProblem) {
+        return codeOutTestcases.map((_, index) => ({
+            case: `Case ${index + 1}`,
+            status: "READY",
+            output: "Not available during contest"
+        }));
+    }
+
+    // Normal LeetCode problems
+    const cases = Array.from(
+        document.querySelectorAll("div")
+    ).filter((el) =>
+        /^Case \d+$/.test(el.textContent.trim())
+    );
 
     const resultMap = new Map();
 
@@ -16,7 +32,9 @@ function getTestCaseResults() {
 
         let status = null;
 
-        if (container.querySelector(".fa-square-check")) {
+        if (
+            container.querySelector(".fa-square-check")
+        ) {
             status = "Accepted";
         } else if (
             container.querySelector(".fa-square-xmark") ||
@@ -51,9 +69,16 @@ function getTestCaseResults() {
         ).map((line) => line.textContent.trim());
     }
 
-    const results = Array.from(resultMap.values()).sort((a, b) => {
-        const numA = Number(a.case.match(/\d+/)[0]);
-        const numB = Number(b.case.match(/\d+/)[0]);
+    const results = Array.from(
+        resultMap.values()
+    ).sort((a, b) => {
+        const numA = Number(
+            a.case.match(/\d+/)[0]
+        );
+
+        const numB = Number(
+            b.case.match(/\d+/)[0]
+        );
 
         return numA - numB;
     });
@@ -76,47 +101,105 @@ window.addEventListener("message", (event) => {
         return;
     }
 
+    if (type === "SET_TESTCASES") {
+        codeOutTestcases =
+            event.data.testcases ?? [];
+
+        codeOutIsContestProblem =
+            event.data.isContestProblem === true;
+
+        return;
+    }
+
     if (type === "SET_CODE") {
         setLeetCodeCode(event.data.code);
-    } else if (type === "RUN_CODE") {
+        return;
+    }
+
+    if (type === "RUN_CODE") {
         runLeetCode();
-    } else if (type === "SUBMIT_CODE") {
+        return;
+    }
+
+    if (type === "SUBMIT_CODE") {
         submitLeetCode();
     }
 });
 
 function setLeetCodeCode(code) {
-    const editors = monaco.editor.getEditors();
+    // Normal LeetCode editor
+    if (typeof monaco !== "undefined") {
+        const editors = monaco.editor.getEditors();
 
-    if (!editors.length) {
-        console.log("❌ No Monaco editors found");
+        if (editors.length) {
+            editors[0].setValue(code);
+            return;
+        }
+    }
+
+    // Contest CodeMirror editor
+    const content = document.querySelector(".cm-content");
+
+    if (!content?.cmView?.view) {
+        console.log("❌ CodeMirror editor not found");
         return;
     }
 
-    editors[0].setValue(code);
+    const view = content.cmView.view;
+
+    view.dispatch({
+        changes: {
+            from: 0,
+            to: view.state.doc.length,
+            insert: code
+        }
+    });
 }
 
 function runLeetCode() {
-    const runButton = document.querySelector(
+    let runButton = document.querySelector(
         'button[data-e2e-locator="console-run-button"]'
     );
 
     if (!runButton) {
-        console.log("❌ LeetCode Run button not found");
+        runButton = Array.from(
+            document.querySelectorAll("button")
+        ).find(
+            (button) =>
+                button.textContent.trim() === "Run"
+        );
+    }
+
+    if (!runButton) {
+        console.log(
+            "❌ LeetCode Run button not found"
+        );
         return;
     }
 
     watchTestResults();
+
     runButton.click();
 }
 
 function submitLeetCode() {
-    const submitButton = document.querySelector(
+    let submitButton = document.querySelector(
         'button[data-e2e-locator="console-submit-button"]'
     );
 
     if (!submitButton) {
-        console.log("❌ LeetCode Submit button not found");
+        submitButton = Array.from(
+            document.querySelectorAll("button")
+        ).find(
+            (button) =>
+                button.textContent.trim() === "Submit"
+        );
+    }
+
+    if (!submitButton) {
+        console.log(
+            "❌ LeetCode Submit button not found"
+        );
         return;
     }
 
@@ -127,12 +210,96 @@ function watchTestResults() {
     const observer = new MutationObserver(() => {
         const bodyText = document.body.innerText;
 
-        const hasExecutionError =
-            bodyText.includes("Compile Error") ||
-            bodyText.includes("Time Limit Exceeded") ||
-            bodyText.includes("Memory Limit Exceeded") ||
+        const hasCompileError =
+            bodyText.includes("Compile Error");
+
+        const hasTimeLimit =
+            bodyText.includes(
+                "Time Limit Exceeded"
+            );
+
+        const hasMemoryLimit =
+            bodyText.includes(
+                "Memory Limit Exceeded"
+            );
+
+        const hasRuntimeError =
             bodyText.includes("Runtime Error");
 
+        const hasExecutionError =
+            hasCompileError ||
+            hasTimeLimit ||
+            hasMemoryLimit ||
+            hasRuntimeError;
+
+        // Contest problem
+        if (codeOutIsContestProblem) {
+            if (hasExecutionError) {
+                let status = "Runtime Error";
+
+                if (hasCompileError) {
+                    status = "Compile Error";
+                } else if (hasTimeLimit) {
+                    status = "Time Limit Exceeded";
+                } else if (hasMemoryLimit) {
+                    status = "Memory Limit Exceeded";
+                }
+
+                window.postMessage(
+                    {
+                        source: "CodeOut",
+                        type: "LEETCODE_TEST_RESULTS",
+                        results: codeOutTestcases.map(
+                            (_, index) => ({
+                                case: `Case ${index + 1}`,
+                                status,
+                                output:
+                                    "Not available during contest"
+                            })
+                        )
+                    },
+                    "*"
+                );
+
+                observer.disconnect();
+                return;
+            }
+
+            // Contest execution finished.
+            // LeetCode doesn't provide correctness/output.
+            //
+            // Wait until the contest result area
+            // actually appears before sending results.
+            const contestMessage =
+                bodyText.includes(
+                    "Not available during contest"
+                );
+
+            if (!contestMessage) {
+                return;
+            }
+
+            window.postMessage(
+                {
+                    source: "CodeOut",
+                    type: "LEETCODE_TEST_RESULTS",
+                    results: codeOutTestcases.map(
+                        (_, index) => ({
+                            case: `Case ${index + 1}`,
+                            status: "READY",
+                            output:
+                                "Not available during contest"
+                        })
+                    )
+                },
+                "*"
+            );
+
+            observer.disconnect();
+            return;
+        }
+
+        // Normal LeetCode execution errors
         if (hasExecutionError) {
             const results = getTestCaseResults();
 
@@ -153,8 +320,11 @@ function watchTestResults() {
                 );
             } else {
                 results.forEach((result) => {
-                    if (result.status !== "Accepted") {
-                        result.status = "Wrong Answer";
+                    if (
+                        result.status !== "Accepted"
+                    ) {
+                        result.status =
+                            "Wrong Answer";
                     }
                 });
 
@@ -172,6 +342,7 @@ function watchTestResults() {
             return;
         }
 
+        // Normal Accepted / Wrong Answer
         const results = getTestCaseResults();
 
         if (results.length === 0) {
