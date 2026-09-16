@@ -2,6 +2,7 @@ const script = document.createElement("script");
 
 script.src = browser.runtime.getURL("page.js");
 (document.head || document.documentElement).appendChild(script);
+
 script.onload = () => {
     script.remove();
 };
@@ -9,50 +10,46 @@ script.onload = () => {
 let socket;
 
 function connectToServer() {
-
     socket = new WebSocket("ws://localhost:48721");
 
     socket.addEventListener("open", () => {
-        console.log("Connected to CodeOut WebSocket!");
-
-        socket.send(JSON.stringify({
-            type: "register",
-            client: "browser"
-        }));
+        socket.send(
+            JSON.stringify({
+                type: "register",
+                client: "browser"
+            })
+        );
     });
 
     socket.addEventListener("message", async (event) => {
-
         const data = JSON.parse(event.data);
 
         if (data.command === "syncCode") {
-
-            console.log("Code received from VS Code");
-
-            window.postMessage({
-                source: "CodeOut",
-                type: "SET_CODE",
-                code: data.code,
-                language: data.language
-            }, "*");
-        }
-
-        if (data.command === "runCode") {
-
-            console.log("🔥 runCode received in content.js");
-
-            window.postMessage({
-                source: "CodeOut",
-                type: "RUN_CODE"
-            }, "*");
-        }
-
-        if (data.command === "submit") {
-
-            window.postMessage({
-                source: "CodeOut",
-                type: "SUBMIT_CODE"
-            }, "*");
+            window.postMessage(
+                {
+                    source: "CodeOut",
+                    type: "SET_CODE",
+                    code: data.code,
+                    language: data.language
+                },
+                "*"
+            );
+        } else if (data.command === "runCode") {
+            window.postMessage(
+                {
+                    source: "CodeOut",
+                    type: "RUN_CODE"
+                },
+                "*"
+            );
+        } else if (data.command === "submit") {
+            window.postMessage(
+                {
+                    source: "CodeOut",
+                    type: "SUBMIT_CODE"
+                },
+                "*"
+            );
         }
     });
 
@@ -61,148 +58,117 @@ function connectToServer() {
     });
 
     socket.addEventListener("close", () => {
-
-        console.log("Disconnected from CodeOut server. Retrying...");
-
-        setTimeout(() => {
-            connectToServer();
-        }, 2000);
+        setTimeout(connectToServer, 2000);
     });
 }
 
 connectToServer();
 
 browser.runtime.onMessage.addListener(async (message) => {
-    if (message.type === "CODEOUT_START") {
-        console.log("CodeOut started");
+    if (message.type !== "CODEOUT_START") {
+        return;
+    }
 
-        
-        // 1. Get current problem slug
-        let url = new URL(window.location.href);
-        let parts = url.pathname.split("/");
-        let questionName = parts[2];
-        
-        console.log("Problem:", questionName);
-        
-        
-        // 2. Get problem data from GraphQL
-        let data = await getProblem(questionName);
-        // 3. Get useful problem information
-        let question = data.data.question;
-        // console.log("FULL QUESTION DATA:", question);
-        const examples = getExamples(question.content);
-        // console.log("Extracted examples:", examples);
-        const finalTC = examples.map((example) => {
-            return {
-                input: example.input,
-                expectedOutput: example.expectedOutput
-            };
-        });
-        // console.log(finalTC);
-        const problem = {
-            slug: question.titleSlug,
-            questionFrontendId : question.questionFrontendId,
-            title: question.title,
-            difficulty: question.difficulty,
-            testcases: finalTC,
-            codeSnippets: question.codeSnippets
-        };
-        
-        console.log("Sending problem to CodeOut server:", problem);
+    const url = new URL(window.location.href);
+    const questionName = url.pathname.split("/")[2];
 
-        try {
-            const response = await fetch("http://localhost:48721/problem", {
+    const data = await getProblem(questionName);
+    const question = data.data.question;
+
+    const examples = getExamples(question.content);
+
+    const problem = {
+        slug: question.titleSlug,
+        questionFrontendId: question.questionFrontendId,
+        title: question.title,
+        difficulty: question.difficulty,
+        testcases: examples.map((example) => ({
+            input: example.input,
+            expectedOutput: example.expectedOutput
+        })),
+        codeSnippets: question.codeSnippets
+    };
+
+    try {
+        const response = await fetch(
+            "http://localhost:48721/problem",
+            {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify(problem)
-            });
+            }
+        );
 
-            console.log("Server status:", response.status);
-
-            const responseText = await response.text();
-            console.log("Server response:", responseText);
-
-        } catch (error) {
-            console.error("Failed to contact CodeOut server:", error);
-        }
-        
-        // console.log("Question ID:", question.questionFrontendId);
-        // console.log("Title:", question.title);
-        // console.log("Difficulty:", question.difficulty);
-        // console.log("Testcases:", question.exampleTestcases);
-        // console.log("Code snippets:", question.codeSnippets);
-
+        console.log("CodeOut problem sent:", response.status);
+    } catch (error) {
+        console.error(
+            "Failed to contact CodeOut server:",
+            error
+        );
     }
 });
 
 window.addEventListener("message", (event) => {
-    if (event.source !== window) return;
-
-    if (
-        event.data?.source === "CodeOut" &&
-        event.data?.type === "TEST"
-    ) {
-        console.log(
-            "Received from page.js:",
-            event.data.data
-        );
+    if (event.source !== window || event.data?.source !== "CodeOut") {
+        return;
     }
-    if (
-        event.data?.source === "CodeOut" &&
-        event.data?.type === "LEETCODE_TEST_RESULTS"
-    ){
-        socket.send(JSON.stringify({
-        command: "testResults",
-        results: event.data.results
-        }));
+
+    if (event.data.type === "LEETCODE_TEST_RESULTS") {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        socket.send(
+            JSON.stringify({
+                command: "testResults",
+                results: event.data.results
+            })
+        );
     }
 });
 
-
 async function getProblem(titleSlug) {
-    const response = await fetch("https://leetcode.com/graphql/", {
-        method: "POST",
-
-        headers: {
-            "Content-Type": "application/json"
-        },
-
-        body: JSON.stringify({
-            operationName: "questionData",
-
-            variables: {
-                titleSlug
+    const response = await fetch(
+        "https://leetcode.com/graphql/",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
             },
-
-            query: `query questionData($titleSlug: String!) {
-                question(titleSlug: $titleSlug) {
-                    questionFrontendId
-                    title
+            body: JSON.stringify({
+                operationName: "questionData",
+                variables: {
                     titleSlug
-                    difficulty
-                    content
-                    exampleTestcases
-                    codeSnippets {
-                        lang
-                        langSlug
-                        code
+                },
+                query: `
+                    query questionData($titleSlug: String!) {
+                        question(titleSlug: $titleSlug) {
+                            questionFrontendId
+                            title
+                            titleSlug
+                            difficulty
+                            content
+                            exampleTestcases
+                            codeSnippets {
+                                lang
+                                langSlug
+                                code
+                            }
+                        }
                     }
-                }
-            }`
-        })
-    });
+                `
+            })
+        }
+    );
 
-    const data = await response.json();
-
-    return data;
+    return response.json();
 }
 
 function getExamples(content) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(content, "text/html");
-
     const examples = [];
 
     const preTags = doc.querySelectorAll("pre");

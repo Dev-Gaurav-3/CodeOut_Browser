@@ -1,51 +1,41 @@
-console.log("CodeOut page.js is running");
-
-window.postMessage(
-    {
-        source: "CodeOut",
-        type: "TEST",
-        data: "Hello from page.js"
-    },
-    "*"
-);
-
 function getTestCaseResults() {
-
     const cases = Array.from(document.querySelectorAll("div"))
-        .filter(el => /^Case \d+$/.test(el.textContent.trim()));
+        .filter((el) => /^Case \d+$/.test(el.textContent.trim()));
 
     const resultMap = new Map();
 
     for (const caseText of cases) {
-
         const caseNumber = caseText.textContent.trim();
-
         const container = caseText.closest(".cursor-pointer");
 
         if (!container) {
             continue;
         }
 
+        const text = container.textContent.trim();
+
         let status = null;
 
         if (container.querySelector(".fa-square-check")) {
             status = "Accepted";
-        }
-        else if (container.querySelector(".fa-square-xmark")) {
+        } else if (
+            container.querySelector(".fa-square-xmark") ||
+            text.includes("Wrong Answer") ||
+            text.includes("Time Limit Exceeded") ||
+            text.includes("Memory Limit Exceeded") ||
+            text.includes("Compile Error") ||
+            text.includes("Runtime Error")
+        ) {
             status = "Wrong Answer";
         }
 
         if (status) {
             resultMap.set(caseNumber, {
                 case: caseNumber,
-                status: status
+                status
             });
         }
     }
-
-    // ------------------------------------
-    // Get actual output
-    // ------------------------------------
 
     const editors = Array.from(
         document.querySelectorAll(".cm-editor")
@@ -54,27 +44,19 @@ function getTestCaseResults() {
     let outputs = [];
 
     if (editors.length >= 2) {
-
         const outputEditor = editors[1];
 
         outputs = Array.from(
             outputEditor.querySelectorAll(".cm-line")
-        )
-            .map(line => line.textContent.trim());
+        ).map((line) => line.textContent.trim());
     }
 
-    // ------------------------------------
-    // Combine results + outputs
-    // ------------------------------------
+    const results = Array.from(resultMap.values()).sort((a, b) => {
+        const numA = Number(a.case.match(/\d+/)[0]);
+        const numB = Number(b.case.match(/\d+/)[0]);
 
-    const results = Array.from(resultMap.values())
-        .sort((a, b) => {
-
-            const numA = Number(a.case.match(/\d+/)[0]);
-            const numB = Number(b.case.match(/\d+/)[0]);
-
-            return numA - numB;
-        });
+        return numA - numB;
+    });
 
     results.forEach((result, index) => {
         result.output = outputs[index] ?? "";
@@ -84,42 +66,37 @@ function getTestCaseResults() {
 }
 
 window.addEventListener("message", (event) => {
-
-    if (event.source !== window) return;
-
-    if (
-        event.data?.source === "CodeOut" &&
-        event.data?.type === "SET_CODE"
-    ) {
-        const { code } = event.data;
-        const editors = monaco.editor.getEditors();
-        if (!editors.length) {
-            console.log("❌ No Monaco editors found");
-            return;
-        }
-
-        const editor = editors[0];
-
-        editor.setValue(code);
+    if (event.source !== window) {
+        return;
     }
 
-    if (
-        event.data?.source === "CodeOut" &&
-        event.data?.type === "RUN_CODE"
-    ) {
+    const { source, type } = event.data ?? {};
+
+    if (source !== "CodeOut") {
+        return;
+    }
+
+    if (type === "SET_CODE") {
+        setLeetCodeCode(event.data.code);
+    } else if (type === "RUN_CODE") {
         runLeetCode();
-    }
-    if (
-        event.data?.source === "CodeOut" &&
-        event.data?.type === "SUBMIT_CODE"
-    ) {
+    } else if (type === "SUBMIT_CODE") {
         submitLeetCode();
     }
 });
 
+function setLeetCodeCode(code) {
+    const editors = monaco.editor.getEditors();
+
+    if (!editors.length) {
+        console.log("❌ No Monaco editors found");
+        return;
+    }
+
+    editors[0].setValue(code);
+}
 
 function runLeetCode() {
-
     const runButton = document.querySelector(
         'button[data-e2e-locator="console-run-button"]'
     );
@@ -130,12 +107,10 @@ function runLeetCode() {
     }
 
     watchTestResults();
-
     runButton.click();
 }
 
 function submitLeetCode() {
-
     const submitButton = document.querySelector(
         'button[data-e2e-locator="console-submit-button"]'
     );
@@ -148,10 +123,54 @@ function submitLeetCode() {
     submitButton.click();
 }
 
-
 function watchTestResults() {
-
     const observer = new MutationObserver(() => {
+        const bodyText = document.body.innerText;
+
+        const hasExecutionError =
+            bodyText.includes("Compile Error") ||
+            bodyText.includes("Time Limit Exceeded") ||
+            bodyText.includes("Memory Limit Exceeded") ||
+            bodyText.includes("Runtime Error");
+
+        if (hasExecutionError) {
+            const results = getTestCaseResults();
+
+            if (results.length === 0) {
+                window.postMessage(
+                    {
+                        source: "CodeOut",
+                        type: "LEETCODE_TEST_RESULTS",
+                        results: [
+                            {
+                                case: "Case 1",
+                                status: "Wrong Answer",
+                                output: ""
+                            }
+                        ]
+                    },
+                    "*"
+                );
+            } else {
+                results.forEach((result) => {
+                    if (result.status !== "Accepted") {
+                        result.status = "Wrong Answer";
+                    }
+                });
+
+                window.postMessage(
+                    {
+                        source: "CodeOut",
+                        type: "LEETCODE_TEST_RESULTS",
+                        results
+                    },
+                    "*"
+                );
+            }
+
+            observer.disconnect();
+            return;
+        }
 
         const results = getTestCaseResults();
 
@@ -159,19 +178,14 @@ function watchTestResults() {
             return;
         }
 
-        // We only send when every testcase has finished.
-        if (results.some(result =>
-            result.status !== "Accepted" &&
-            result.status !== "Wrong Answer"
-        )) {
-            return;
-        }
-
-        window.postMessage({
-            source: "CodeOut",
-            type: "LEETCODE_TEST_RESULTS",
-            results: results
-        }, "*");
+        window.postMessage(
+            {
+                source: "CodeOut",
+                type: "LEETCODE_TEST_RESULTS",
+                results
+            },
+            "*"
+        );
 
         observer.disconnect();
     });
