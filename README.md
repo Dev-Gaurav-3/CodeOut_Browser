@@ -1,8 +1,15 @@
-# CodeOut — Browser Extension
+<div align="center">
 
-<p align="center">
-  <img src="resources/CodeOut_sidebar_icon.svg" width="100" alt="CodeOut">
-</p>
+<pre>
+         ██████╗ ██████╗ ██████╗ ███████╗ ██████╗ ██╗   ██╗████████╗
+        ██╔════╝██╔═══██╗██╔══██╗██╔════╝██╔═══██╗██║   ██║╚══██╔══╝
+     ██║     ██║   ██║██║  ██║█████╗  ██║   ██║██║   ██║   ██║
+        ██║     ██║   ██║██║  ██║██╔══╝  ██║   ██║██║   ██║   ██║   
+        ╚██████╗╚██████╔╝██████╔╝███████╗╚██████╔╝╚██████╔╝   ██║   
+        ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝ ╚═════╝  ╚═════╝    ╚═╝   
+</pre>
+
+</div>
 
 <h3 align="center">The browser-side bridge between LeetCode and VS Code.</h3>
 
