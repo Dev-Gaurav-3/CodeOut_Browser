@@ -11,6 +11,10 @@
 
 </div>
 
+<p align="center">
+  <img src="icons/Logo2.png" width="100" alt="CodeOut">
+</p>
+
 <h3 align="center">The browser-side bridge between LeetCode and VS Code.</h3>
 
 <p align="center">
