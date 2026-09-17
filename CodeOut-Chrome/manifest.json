@@ -1,0 +1,61 @@
+{
+    "manifest_version": 3,
+    "name": "CodeOut",
+    "version": "0.1.0",
+    "description": "Code outside the platform.",
+
+    "permissions": [
+        "activeTab"
+    ],
+
+    "host_permissions": [
+        "http://localhost:48721/*",
+        "http://127.0.0.1:48721/*"
+    ],
+
+    "icons": {
+        "48": "icons/Logo2.png"
+    },
+
+    "action": {
+        "default_title": "Open with CodeOut"
+    },
+
+    "background": {
+        "service_worker": "background.js",
+        "scripts": ["background.js"]
+    },
+
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "codeout@gaurav.dev",
+            "strict_min_version": "128.0",
+            "data_collection_permissions": {
+                "required": ["none"]
+            }
+        }
+    },
+
+    "content_scripts": [
+        {
+            "matches": ["https://leetcode.com/*"],
+            "js": ["content.js"],
+            "run_at": "document_idle",
+            "all_frames": false
+        },
+        {
+            "matches": ["https://leetcode.com/*"],
+            "js": ["page.js"],
+            "world": "MAIN",
+            "run_at": "document_idle",
+            "all_frames": false
+        }
+    ],
+
+    "web_accessible_resources": [
+        {
+            "resources": ["page.js"],
+            "matches": ["https://leetcode.com/*"]
+        }
+    ]
+}
