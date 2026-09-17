@@ -1,21 +1,318 @@
 let codeOutTestcases = [];
 let codeOutIsContestProblem = false;
 
-function getTestCaseResults() {
-    // Contest problems
-    if (codeOutIsContestProblem) {
-        return codeOutTestcases.map((_, index) => ({
-            case: `Case ${index + 1}`,
-            status: "READY",
-            output: "Not available during contest"
-        }));
+
+function getContestResultPanel() {
+    const panels = Array.from(
+        document.querySelectorAll('[id^="contest-result-"]')
+    );
+
+    return panels[panels.length - 1] ?? null;
+}
+
+function getContestOutputs(panel = getContestResultPanel()) {
+    if (!panel) {
+        return [];
     }
 
+    const hiddenResult = panel.querySelector(
+        ".mt-0.h-0.overflow-hidden.opacity-0"
+    );
+
+    if (!hiddenResult) {
+        return [];
+    }
+
+    const editors = Array.from(
+        hiddenResult.querySelectorAll(".cm-editor")
+    );
+
+    if (editors.length < 2) {
+        return [];
+    }
+
+    const outputEditor = editors[1];
+
+    return Array.from(
+        outputEditor.querySelectorAll(".cm-line")
+    )
+    .map((line) => line.textContent.trim())
+    .filter(Boolean);
+}
+
+function normalizeContestOutput(value) {
+    return String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+}
+
+function contestOutputsMatch(actual, expected) {
+    const normalizedActual =
+    normalizeContestOutput(actual);
+
+    const normalizedExpected =
+    normalizeContestOutput(expected);
+
+    if (normalizedActual === normalizedExpected) {
+        return true;
+    }
+
+    try {
+        return (
+            JSON.stringify(
+                JSON.parse(normalizedActual)
+            ) ===
+            JSON.stringify(
+                JSON.parse(normalizedExpected)
+            )
+        );
+    } catch {
+        return false;
+    }
+}
+
+function sendContestResults(outputs) {
+    const results = codeOutTestcases.map(
+        (testcase, index) => {
+            const actual = outputs[index] ?? "";
+            const expected =
+            testcase.expectedOutput ?? "";
+
+            return {
+                case: `Case ${index + 1}`,
+                    status: contestOutputsMatch(
+                        actual,
+                        expected
+                    )
+                    ? "Accepted"
+                    : "Wrong Answer",
+                    output: normalizeContestOutput(actual)
+            };
+        }
+    );
+
+    window.postMessage(
+        {
+            source: "CodeOut",
+            type: "LEETCODE_TEST_RESULTS",
+            results
+        },
+        "*"
+    );
+}
+
+function watchContestTestResults() {
+    const startPanel = getContestResultPanel();
+    const startSignature = getContestSignature(
+        startPanel
+    );
+
+    let runStarted = !startPanel;
+    let lastSignature = "";
+    let stableSince = 0;
+    let checkTimer;
+    let timeoutTimer;
+
+    const cleanup = () => {
+        clearInterval(checkTimer);
+        clearTimeout(timeoutTimer);
+        observer.disconnect();
+    };
+
+    const finish = (results) => {
+        window.postMessage(
+            {
+                source: "CodeOut",
+                type: "LEETCODE_TEST_RESULTS",
+                results
+            },
+            "*"
+        );
+
+        cleanup();
+    };
+
+    const observer =
+    new MutationObserver(() => {
+        const panel =
+        getContestResultPanel();
+
+        if (!panel) {
+            return;
+        }
+
+        if (
+            panel !== startPanel ||
+            getContestSignature(panel) !==
+            startSignature
+        ) {
+            runStarted = true;
+        }
+    });
+
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true
+    });
+
+    checkTimer = setInterval(() => {
+        const panel =
+        getContestResultPanel();
+
+        if (!panel) {
+            return;
+        }
+
+        const signature =
+        getContestSignature(panel);
+
+        if (
+            panel !== startPanel ||
+            signature !== startSignature
+        ) {
+            runStarted = true;
+        }
+
+        if (!runStarted) {
+            return;
+        }
+
+        const panelText =
+        panel.textContent ?? "";
+
+        const errorStatus =
+        getContestExecutionError(panelText);
+
+        if (errorStatus) {
+            const outputs =
+            getContestOutputs(panel);
+
+            finish(
+                codeOutTestcases.map(
+                    (_, index) => ({
+                        case: `Case ${index + 1}`,
+                            status: errorStatus,
+                            output:
+                            normalizeContestOutput(
+                                outputs[index] ?? ""
+                            )
+                    })
+                )
+            );
+
+            return;
+        }
+
+        const resultStatus =
+        panel.querySelector(
+            '[data-e2e-locator="console-result"]'
+        )?.textContent.trim();
+
+        if (resultStatus !== "Finished") {
+            lastSignature = "";
+            stableSince = 0;
+            return;
+        }
+
+        const outputs =
+        getContestOutputs(panel);
+
+        if (
+            outputs.length <
+            codeOutTestcases.length
+        ) {
+            lastSignature = signature;
+            stableSince = 0;
+            return;
+        }
+
+        const outputSignature =
+        outputs
+        .map((output) =>
+        normalizeContestOutput(output)
+        )
+        .join("\u0000");
+
+        if (
+            outputSignature !== lastSignature
+        ) {
+            lastSignature = outputSignature;
+            stableSince = Date.now();
+            return;
+        }
+
+        if (
+            Date.now() - stableSince <
+            150
+        ) {
+            return;
+        }
+
+        sendContestResults(outputs);
+        cleanup();
+    }, 100);
+
+    timeoutTimer = setTimeout(() => {
+        cleanup();
+    }, 15000);
+}
+
+function getContestSignature(panel) {
+    if (!panel) {
+        return "";
+    }
+
+    const status =
+    panel.querySelector(
+        '[data-e2e-locator="console-result"]'
+    )?.textContent.trim() ?? "";
+
+    const outputs =
+    getContestOutputs(panel);
+
+    return [
+        status,
+        outputs.join("\u0000"),
+        panel.textContent?.length ?? 0
+    ].join("|");
+}
+
+function getContestExecutionError(text) {
+    if (text.includes("Compile Error")) {
+        return "Compile Error";
+    }
+
+    if (
+        text.includes(
+            "Time Limit Exceeded"
+        )
+    ) {
+        return "Time Limit Exceeded";
+    }
+
+    if (
+        text.includes(
+            "Memory Limit Exceeded"
+        )
+    ) {
+        return "Memory Limit Exceeded";
+    }
+
+    if (text.includes("Runtime Error")) {
+        return "Runtime Error";
+    }
+
+    return null;
+}
+
+function getTestCaseResults() {
     // Normal LeetCode problems
     const cases = Array.from(
         document.querySelectorAll("div")
     ).filter((el) =>
-        /^Case \d+$/.test(el.textContent.trim())
+    /^Case \d+$/.test(el.textContent.trim())
     );
 
     const resultMap = new Map();
@@ -50,7 +347,7 @@ function getTestCaseResults() {
         if (status) {
             resultMap.set(caseNumber, {
                 case: caseNumber,
-                status
+                    status
             });
         }
     }
@@ -103,10 +400,10 @@ window.addEventListener("message", (event) => {
 
     if (type === "SET_TESTCASES") {
         codeOutTestcases =
-            event.data.testcases ?? [];
+        event.data.testcases ?? [];
 
         codeOutIsContestProblem =
-            event.data.isContestProblem === true;
+        event.data.isContestProblem === true;
 
         return;
     }
@@ -166,7 +463,7 @@ function runLeetCode() {
             document.querySelectorAll("button")
         ).find(
             (button) =>
-                button.textContent.trim() === "Run"
+            button.textContent.trim() === "Run"
         );
     }
 
@@ -177,7 +474,11 @@ function runLeetCode() {
         return;
     }
 
-    watchTestResults();
+    if (codeOutIsContestProblem) {
+        watchContestTestResults();
+    } else {
+        watchTestResults();
+    }
 
     runButton.click();
 }
@@ -192,7 +493,7 @@ function submitLeetCode() {
             document.querySelectorAll("button")
         ).find(
             (button) =>
-                button.textContent.trim() === "Submit"
+            button.textContent.trim() === "Submit"
         );
     }
 
@@ -211,93 +512,26 @@ function watchTestResults() {
         const bodyText = document.body.innerText;
 
         const hasCompileError =
-            bodyText.includes("Compile Error");
+        bodyText.includes("Compile Error");
 
         const hasTimeLimit =
-            bodyText.includes(
-                "Time Limit Exceeded"
-            );
+        bodyText.includes(
+            "Time Limit Exceeded"
+        );
 
         const hasMemoryLimit =
-            bodyText.includes(
-                "Memory Limit Exceeded"
-            );
+        bodyText.includes(
+            "Memory Limit Exceeded"
+        );
 
         const hasRuntimeError =
-            bodyText.includes("Runtime Error");
+        bodyText.includes("Runtime Error");
 
         const hasExecutionError =
-            hasCompileError ||
-            hasTimeLimit ||
-            hasMemoryLimit ||
-            hasRuntimeError;
-
-        // Contest problem
-        if (codeOutIsContestProblem) {
-            if (hasExecutionError) {
-                let status = "Runtime Error";
-
-                if (hasCompileError) {
-                    status = "Compile Error";
-                } else if (hasTimeLimit) {
-                    status = "Time Limit Exceeded";
-                } else if (hasMemoryLimit) {
-                    status = "Memory Limit Exceeded";
-                }
-
-                window.postMessage(
-                    {
-                        source: "CodeOut",
-                        type: "LEETCODE_TEST_RESULTS",
-                        results: codeOutTestcases.map(
-                            (_, index) => ({
-                                case: `Case ${index + 1}`,
-                                status,
-                                output:
-                                    "Not available during contest"
-                            })
-                        )
-                    },
-                    "*"
-                );
-
-                observer.disconnect();
-                return;
-            }
-
-            // Contest execution finished.
-            // LeetCode doesn't provide correctness/output.
-            //
-            // Wait until the contest result area
-            // actually appears before sending results.
-            const contestMessage =
-                bodyText.includes(
-                    "Not available during contest"
-                );
-
-            if (!contestMessage) {
-                return;
-            }
-
-            window.postMessage(
-                {
-                    source: "CodeOut",
-                    type: "LEETCODE_TEST_RESULTS",
-                    results: codeOutTestcases.map(
-                        (_, index) => ({
-                            case: `Case ${index + 1}`,
-                            status: "READY",
-                            output:
-                                "Not available during contest"
-                        })
-                    )
-                },
-                "*"
-            );
-
-            observer.disconnect();
-            return;
-        }
+        hasCompileError ||
+        hasTimeLimit ||
+        hasMemoryLimit ||
+        hasRuntimeError;
 
         // Normal LeetCode execution errors
         if (hasExecutionError) {
@@ -311,8 +545,8 @@ function watchTestResults() {
                         results: [
                             {
                                 case: "Case 1",
-                                status: "Wrong Answer",
-                                output: ""
+                                    status: "Wrong Answer",
+                                    output: ""
                             }
                         ]
                     },
@@ -324,7 +558,7 @@ function watchTestResults() {
                         result.status !== "Accepted"
                     ) {
                         result.status =
-                            "Wrong Answer";
+                        "Wrong Answer";
                     }
                 });
 
