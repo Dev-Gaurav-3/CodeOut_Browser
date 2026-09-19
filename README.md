@@ -49,6 +49,19 @@ The current implementation is built and tested for **Mozilla Firefox** using **M
 
 ---
 
+# HOW to use CodeOut
+
+<img src="./icons/1.png">
+
+<img src="./icons/2.png">
+
+<img src="./icons/3.png">
+
+<img src="./icons/4.png">
+
+<img src="./icons/5.png">
+
+
 ## ✨ Features
 
 ### 📥 Problem Extraction
